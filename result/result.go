@@ -2,14 +2,10 @@ package result
 
 import (
 	"fmt"
-	"strings"
 
-	"github.com/zclconf/go-cty/cty"
-
-	"github.com/khulnasoft-lab/tfsecurity/internal/app/tfsecurity/block"
-	"github.com/khulnasoft-lab/tfsecurity/pkg/defsec/definition"
-	"github.com/khulnasoft-lab/tfsecurity/pkg/provider"
-	"github.com/khulnasoft-lab/tfsecurity/pkg/severity"
+	"github.com/khulnasoft-lab/defsec/definition"
+	"github.com/khulnasoft-lab/defsec/provider"
+	"github.com/khulnasoft-lab/defsec/severity"
 )
 
 // Result is a positive result for a security check. It encapsulates a code unique to the specific check it was raised
@@ -27,8 +23,6 @@ type Result struct {
 	Severity        severity.Severity `json:"severity"`
 	Status          Status            `json:"status"`
 	Location        definition.Range  `json:"location"`
-	blocks          block.Blocks
-	attribute       block.Attribute
 }
 
 type Status string
@@ -39,12 +33,10 @@ const (
 	Ignored Status = "ignored"
 )
 
-func New(resourceBlock block.Block) *Result {
+func New() *Result {
 	result := &Result{
 		Status: Failed,
-		blocks: []block.Block{resourceBlock},
 	}
-	result.Location = result.Range()
 	return result
 }
 
@@ -52,34 +44,13 @@ func (r *Result) Passed() bool {
 	return r.Status == Passed
 }
 
-func (r *Result) Blocks() block.Blocks {
-	return r.blocks
-}
-
-func (r *Result) IsOnAttribute() bool {
-	return r.attribute != nil
-}
-
 func (r *Result) Range() definition.Range {
-	if r.Location != nil {
-		return r.Location
-	}
-
-	if r.attribute != nil {
-		return r.attribute.Range()
-	}
-	return r.blocks[len(r.blocks)-1].Range()
+	return r.Location
 }
 
 func (r *Result) HashCode() string {
-	var hash string
-	for _, block := range r.blocks {
-		hash += "!" + block.UniqueName()
-	}
-	if r.attribute != nil {
-		hash += ":" + r.attribute.Name() + ":" + r.attribute.Range().String()
-	}
-	return fmt.Sprintf("%s:%s", hash, r.RuleID)
+
+	return fmt.Sprintf("%s:%s", r.Location, r.RuleID)
 }
 
 func (r *Result) WithRuleID(id string) *Result {
@@ -122,14 +93,6 @@ func (r *Result) WithLinks(links []string) *Result {
 	return r
 }
 
-func (r *Result) WithBlock(block block.Block) *Result {
-	if block.IsNil() {
-		return r
-	}
-	r.blocks = append(r.blocks, block)
-	return r
-}
-
 func (r *Result) WithDescription(description string, parts ...interface{}) *Result {
 	if len(parts) == 0 {
 		r.Description = description
@@ -150,56 +113,15 @@ func (r *Result) WithStatus(status Status) *Result {
 	return r
 }
 
-func (r *Result) WithAttribute(attr block.Attribute) *Result {
+func (r *Result) WithAttribute(attr string) *Result {
+	return r
+}
 
-	if attr.IsNil() {
-		return r
-	}
+func (r *Result) WithBlock(block string) *Result {
+	return r
+}
 
-	r.attribute = attr
-
-	var raw string
-
-	var typeStr string
-
-	typ := attr.Type()
-
-	switch typ {
-	case cty.String:
-		raw = fmt.Sprintf("%q", attr.Value().AsString())
-		typeStr = "string"
-	case cty.Bool:
-		raw = fmt.Sprintf("%t", attr.Value().True())
-		typeStr = "bool"
-	case cty.Number:
-		float, _ := attr.Value().AsBigFloat().Float64()
-		raw = fmt.Sprintf("%f", float)
-		typeStr = "number"
-	default:
-		switch true {
-		case typ.IsTupleType(), typ.IsListType():
-			values := attr.Value().AsValueSlice()
-			var strValues []string
-			for _, value := range values {
-				switch value.Type() {
-				case cty.String:
-					strValues = append(strValues, fmt.Sprintf("%q", value.AsString()))
-				case cty.Number:
-					strValues = append(strValues, fmt.Sprintf(`%f`, value.AsBigFloat()))
-				case cty.Bool:
-					strValues = append(strValues, fmt.Sprintf(`%t`, value.True()))
-				}
-
-			}
-			typeStr = "list"
-			raw = fmt.Sprintf("[%s]", strings.Join(strValues, ", "))
-		default:
-			typeStr = "unknown"
-			raw = "???"
-		}
-	}
-
-	r.RangeAnnotation = fmt.Sprintf("%s: %s", typeStr, raw)
-	r.Location = r.Range()
+func(r *Result) WithRange(ra definition.Range) *Result {
+	r.Location = ra
 	return r
 }
